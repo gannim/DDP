@@ -26,7 +26,8 @@ class SEQ2SEQ(object):
             elif cell_type == 'bi-lstm':
                 query = dec_hidden.h ##
                 self.fw_enc_output, self.bw_enc_output = enc_outputs
-                value = tf.add(self.fw_enc_output, self.bw_enc_output)
+                #value = tf.add(self.fw_enc_output, self.bw_enc_output)
+                value = tf.concat([self.fw_enc_output, self.bw_enc_output], 2)
             # query shape ( , hidden )
             query_exp = tf.expand_dims(query, 1) # ( batch, 1, hidden)
             value_w = tf.layers.dense(value, n_hidden, activation=None, reuse=tf.AUTO_REUSE, name='value_w') # (batch, seq, hidden)
@@ -48,8 +49,8 @@ class SEQ2SEQ(object):
         self.y_sequence_length = tf.placeholder(tf.int64, name="y_sequence_length") # batch sequence_length 
         self.out_keep_prob = tf.placeholder(tf.float32, name="out_keep_prob") # dropout
         ## local embedding
-        self.enc_embeddings = tf.Variable(tf.random_normal([uc_data.tot_dic_len, n_hidden]))
-        self.dec_embeddings = tf.Variable(tf.random_normal([uc_data.tot_dic_len, n_hidden]))
+        self.enc_embeddings = tf.Variable(tf.random_normal([uc_data.tot_dic_len, n_hidden*2]))
+        self.dec_embeddings = tf.Variable(tf.random_normal([uc_data.tot_dic_len, n_hidden*2]))
         ## encoder
         with tf.variable_scope('encode'):
             self.enc_input_embeddings = tf.nn.embedding_lookup(self.enc_embeddings, self.enc_inputs) 
@@ -89,7 +90,6 @@ class SEQ2SEQ(object):
                     self.t_dec_input_embeddings = tf.transpose(self.dec_input_embeddings, [1,0,2]) # (t, batch, hidden)
                     def dec_cond(i, y_length, dstate, ot):
                         # end symbol index = 2
-                        #i = tf.Print(i, [i, uc_data.max_outputs_seq_length, tf.greater_equal(i, uc_data.max_outputs_seq_length), tf.case({tf.greater_equal(i, uc_data.max_outputs_seq_length): false}, default=true)], "i > ")
                         return tf.case({tf.greater_equal(i, uc_data.max_outputs_seq_length): false}, default=true)
                     def dec_body(i, y_length, before_state, output_tensor_t):
                         i_dec_input = tf.transpose(tf.gather_nd(self.t_dec_input_embeddings, [[i]]), [1,0,2]) # (batch, 1, hidden)
@@ -116,16 +116,22 @@ class SEQ2SEQ(object):
             # (batch, seq, hidden) - dense -> (batch, n_class, hidden)
             self.logits = tf.layers.dense(self.outputs, n_class, activation=None, reuse=tf.AUTO_REUSE, name='output_layer')
             # loss
-            self.t_mask = tf.sequence_mask(self.t_sequence_length, tf.shape(self.targets)[1])
+            self.t_mask = tf.sequence_mask(self.t_sequence_length, tf.shape(self.targets)[1]) # [50 22]
+            # https://stackoverflow.com/questions/48978984/tensorflow-boolean-mask-with-dynamic-mask
+            self.t_mask.set_shape([50, 22])
             with tf.variable_scope("loss"):
+                # logits [50 22 1047] targets [50 22] losses [50 22]
                 self.losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits, labels=self.targets)
-                self.losses = self.losses * tf.to_float(self.t_mask)
+                #self.losses = self.losses * tf.to_float(self.t_mask) # [50 22]
+                self.losses = tf.boolean_mask(self.losses, self.t_mask) # 1-D [?] 
                 self.loss = tf.reduce_mean(self.losses)
             # accuracy
             with tf.variable_scope("accuracy"):
                 self.prediction = tf.argmax(self.logits, 2)
-                self.prediction_mask = self.prediction * tf.to_int64(self.t_mask)
-                self.correct_pred = tf.equal(self.prediction_mask, self.targets)
+                #self.prediction_mask = self.prediction * tf.to_int64(self.t_mask)
+                self.prediction_mask = tf.boolean_mask(self.prediction, self.t_mask)
+                self.targets_mask = tf.boolean_mask(self.targets, self.t_mask) # 1-D [?] 
+                self.correct_pred = tf.equal(self.prediction_mask, self.targets_mask)
                 self.accuracy = tf.reduce_mean(tf.cast(self.correct_pred, "float"), name="accuracy")
         ## inferance decoder
         def cond(i, pred, dstate, ot, es):
