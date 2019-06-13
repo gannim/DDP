@@ -41,7 +41,7 @@ class SEQ2SEQ(object):
     # cell_type : rnn cell type , {rnn, gru, lstm, bi-lstm}
     # n_hidden : hidden size
     # n_class : output type lenght
-    def __init__(self, uc_data, cell_type, n_hidden, n_class, attention=False):
+    def __init__(self, uc_data, cell_type, batch_size, n_hidden, n_class, attention=False):
         ## input params
         self.enc_inputs = tf.placeholder(tf.int64, [None, None], name='enc_inputs') # (batch, step)
         self.dec_inputs = tf.placeholder(tf.int64, [None, None], name='dec_inputs') # (batch, step)
@@ -118,7 +118,7 @@ class SEQ2SEQ(object):
             # loss
             self.t_mask = tf.sequence_mask(self.t_sequence_length, tf.shape(self.targets)[1]) # [50 22]
             # https://stackoverflow.com/questions/48978984/tensorflow-boolean-mask-with-dynamic-mask
-            self.t_mask.set_shape([50, 22])
+            self.t_mask.set_shape([batch_size, uc_data.max_targets_seq_length])
             with tf.variable_scope("loss"):
                 # logits [50 22 1047] targets [50 22] losses [50 22]
                 self.losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits, labels=self.targets)
@@ -127,11 +127,10 @@ class SEQ2SEQ(object):
                 self.loss = tf.reduce_mean(self.losses)
             # accuracy
             with tf.variable_scope("accuracy"):
-                self.prediction = tf.argmax(self.logits, 2)
-                #self.prediction_mask = self.prediction * tf.to_int64(self.t_mask)
-                self.prediction_mask = tf.boolean_mask(self.prediction, self.t_mask)
+                self.predict = tf.argmax(self.logits, 2)
+                self.predict_mask = tf.boolean_mask(self.predict, self.t_mask)
                 self.targets_mask = tf.boolean_mask(self.targets, self.t_mask) # 1-D [?] 
-                self.correct_pred = tf.equal(self.prediction_mask, self.targets_mask)
+                self.correct_pred = tf.equal(self.predict_mask, self.targets_mask)
                 self.accuracy = tf.reduce_mean(tf.cast(self.correct_pred, "float"), name="accuracy")
         ## inferance decoder
         def cond(i, pred, dstate, ot, es):
