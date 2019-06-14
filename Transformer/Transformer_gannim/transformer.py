@@ -36,6 +36,7 @@ class Transformer(object):
         self.position_encoded = tf.nn.embedding_lookup(self.pos_encodings, self.positional_inputs)
         self.enc_input_pos = self.enc_input_embeddings + self.position_encoded
         self.dec_input_pos = self.dec_input_embeddings + self.position_encoded 
+        ## enc_input_pos, dec_input_pos 에 dropout 을 먹이기도 하는듯 ?
 
         ## encoding layer 
         with tf.variable_scope('encode'):
@@ -112,16 +113,19 @@ class Transformer(object):
         
     def sublayer_connection(self, inputs, sublayer, dropout):
         # LayerNorm(x + Sublayer(x))
-        return tf.layers.dropout(self.layer_norm(inputs + sublayer), dropout)
+        #return tf.layers.dropout(self.layer_norm(inputs + sublayer), dropout)
+        # Residual connection = input + sublayer 
+        return self.layer_norm(inputs + sublayer)
 
     @staticmethod
-    def layer_norm(inputs, eps=1e-6):
+    def layer_norm(inputs, epsilon=1e-8): #epsilon=1e-6):
         feature_shape = inputs.get_shape()[-1:]
-        mean = tf.keras.backend.mean(inputs, [-1], keepdims=True)
-        std = tf.keras.backend.std(inputs, [-1], keepdims=True)
+        mean, variance = tf.nn.moments(inputs, [-1], keep_dims=True)
         beta = tf.Variable(tf.zeros(feature_shape), trainable=False)
         gamma = tf.Variable(tf.ones(feature_shape), trainable=False)
-        return gamma * (inputs - mean) / (std + eps) + beta
+        #normalized = (inputs - mean) / ((variance + epsilon) ** 0.5) 
+        normalized = (inputs - mean) / (variance + epsilon)
+        return gamma * normalized + beta
 
     @staticmethod
     def scale_dot_product_attention(query, key, value, masked=False):
@@ -140,10 +144,15 @@ class Transformer(object):
 
     @staticmethod
     def feed_forward(inputs, num_units, dropout):
+        # Position-wise Feed-Forward Networks
         # FFN(x) = max(0, xW1 + b1)W2 + b2 
         with tf.variable_scope("feed_forward", reuse=tf.AUTO_REUSE):
+            # relu ==  max(0, x)
+            # max(0, xW1 + b1)
+            ## inner layer
             outputs = tf.layers.dense(inputs, num_units[0], activation=tf.nn.relu)
-            outputs = tf.layers.dropout(outputs, dropout)
+            #outputs = tf.layers.dropout(outputs, dropout)
+            # outer layer 
             return tf.layers.dense(outputs, num_units[1])
 
     @staticmethod
@@ -158,4 +167,9 @@ class Transformer(object):
         # PE(pos,2i+1)
         encoded_vec[1::2] = np.cos(encoded_vec[1::2]) 
         return tf.convert_to_tensor(encoded_vec.reshape([sentence_length, dims]), dtype=dtype)
+    
+    @staticmethod 
+    def noam_scheme(init_lr, gstep, warmup_step=4000):
+        step = tf.cast(gstep + 1, dtype=tf.float32)
+        return init_lr * warmup_steps ** 0.5 * tf.minimum(step *warmup_steps ** -1.5, step ** -0.5)
 
