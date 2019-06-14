@@ -70,7 +70,7 @@ def get_checkpoint_prefix(out_dir):
         os.makedirs(checkpoint_dir)
     return checkpoint_prefix
 
-def run_dev(dev_batchs, model, dev_summery_writer, dev_summary_op, sess, dev_summary_writer, cur_step):
+def run_dev(dev_batchs, model, dev_summary_op, sess, dev_summary_writer, cur_step):
     avg_dev_loss, avg_dev_acc = 0, 0
 
     for dev_ep, dev_batch in enumerate(dev_batchs):
@@ -164,7 +164,7 @@ def run_train():
                 avg_loss, avg_acc = 0, 0
 
                 dev_batchs = uc_data.batch_iter(dev_set, batch_size, 1)
-                run_dev(dev_batchs, transformer, dev_summary_writer, dev_summary_op, sess, dev_summary_writer, cur_step)
+                run_dev(dev_batchs, transformer, dev_summary_op, sess, dev_summary_writer, cur_step)
 
             if cur_step % CHECKPOINT_EVERY == 0:
                 path = saver.save(sess, checkpoint_prefix, global_step=cur_step)
