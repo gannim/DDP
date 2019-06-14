@@ -19,6 +19,7 @@ CHECKPOINT_EVERY = 1000
 filename = 'data.txt'
 uc_data = dataHelper(filename)
 batch_size = 64
+#n_hidden = 128 
 n_hidden = 512
 epochs = 100
 n_class = len(uc_data.tot_word_idx_dic)
@@ -112,7 +113,7 @@ def run_train():
 
     with tf.Session(config=config) as sess:
         gstep = tf.Variable(0, name="gstep", trainable=False)
-        #learning_rate = tf.train.exponential_decay(0.1, gstep, 100000, 0.96, staircase=True)
+        #learning_rate = transformer.noam_scheme(0.1, gstep)
         optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
         grads_vars = optimizer.compute_gradients(transformer.loss)
         train_op = optimizer.apply_gradients(grads_vars, global_step=gstep)

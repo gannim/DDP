@@ -113,19 +113,8 @@ class Transformer(object):
         
     def sublayer_connection(self, inputs, sublayer, dropout):
         # LayerNorm(x + Sublayer(x))
-        #return tf.layers.dropout(self.layer_norm(inputs + sublayer), dropout)
         # Residual connection = input + sublayer 
-        return self.layer_norm(inputs + sublayer)
-
-    @staticmethod
-    def layer_norm(inputs, epsilon=1e-8): #epsilon=1e-6):
-        feature_shape = inputs.get_shape()[-1:]
-        mean, variance = tf.nn.moments(inputs, [-1], keep_dims=True)
-        beta = tf.Variable(tf.zeros(feature_shape), trainable=False)
-        gamma = tf.Variable(tf.ones(feature_shape), trainable=False)
-        #normalized = (inputs - mean) / ((variance + epsilon) ** 0.5) 
-        normalized = (inputs - mean) / (variance + epsilon)
-        return gamma * normalized + beta
+        return tf.contrib.layers.layer_norm(inputs + sublayer)
 
     @staticmethod
     def scale_dot_product_attention(query, key, value, masked=False):
@@ -151,7 +140,7 @@ class Transformer(object):
             # max(0, xW1 + b1)
             ## inner layer
             outputs = tf.layers.dense(inputs, num_units[0], activation=tf.nn.relu)
-            #outputs = tf.layers.dropout(outputs, dropout)
+            outputs = tf.layers.dropout(outputs, dropout)
             # outer layer 
             return tf.layers.dense(outputs, num_units[1])
 
@@ -169,7 +158,7 @@ class Transformer(object):
         return tf.convert_to_tensor(encoded_vec.reshape([sentence_length, dims]), dtype=dtype)
     
     @staticmethod 
-    def noam_scheme(init_lr, gstep, warmup_step=4000):
+    def noam_scheme(init_lr, gstep, warmup_steps=4000):
         step = tf.cast(gstep + 1, dtype=tf.float32)
         return init_lr * warmup_steps ** 0.5 * tf.minimum(step *warmup_steps ** -1.5, step ** -0.5)
 
