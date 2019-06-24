@@ -35,13 +35,14 @@ sources_train, sources_dev, outputs_train, outputs_dev, targets_train, targets_d
 train_set = np.array([(x, outputs_train[idx], targets_train[idx]) for idx, x in enumerate(sources_train)])
 dev_set = np.array([(x, outputs_dev[idx], targets_dev[idx]) for idx, x in enumerate(sources_dev)])
     
-#def transiteration(sess, input_word):
-#    x_bat = uc_data.get_input_idxs(input_word) # [[44 45 42]] 
-#    x_len = np.array([len(x_bat[0])]) # [[3]]
-#    y_bat = uc_data.get_input_idxs(uc_data.START_SYMBOL) #[[1]] 
-#    result = sess.run(transformer.inf_result, feed_dict={transformer.enc_inputs:x_bat, transformer.inf_dec_inputs:y_bat, transformer.out_keep_prob:1.0})
-#    translated = get_translated_str(result)
-#    return translated
+def transiteration(sess, model, input_word):
+    x_bat = uc_data.get_input_idxs(input_word) # [[44 45 42]] 
+    x_bat, x_seq_len = uc_data.pad(x_bat, 1, uc_data.max_sequence_length)
+    x_len = np.array([len(x_bat[0])]) # [[3]]
+    y_bat = uc_data.get_input_idxs(uc_data.START_SYMBOL) #[[1]] 
+    result = sess.run(model.inf_result, feed_dict={model.enc_inputs:x_bat, model.dec_step_inputs:y_bat, model.out_keep_prob:1.0})
+    translated = uc_data.get_translated_str(result)
+    return translated
 
 def get_tfconfig():
     config = tf.ConfigProto()
@@ -99,7 +100,7 @@ def run_dev(dev_batchs, model, dev_summary_op, sess, dev_summary_writer, cur_ste
         avg_dev_acc += results.get('accuracy')
         if dev_ep == 0:
             input_word = uc_data.get_translated_str(x_bat[0])
-            #print('inferance {} -> {}'.format(input_word, transiteration(sess, input_word)))
+            print('inferance {} -> {}'.format(input_word, transiteration(sess, transformer, input_word)))
             print('devset    {} -> {}'.format(input_word, uc_data.get_translated_str(results.get('predict')[0])))
     blen = dev_ep+1
     dev_summary_writer.add_summary(results.get('dev_summary_op'), cur_step)
@@ -171,8 +172,8 @@ def run_train():
                 path = saver.save(sess, checkpoint_prefix, global_step=cur_step)
                 print("Saved model checkpoint to {}\n".format(path) )
         #학습 다하고 최종!
-        #print("final inferance")
-        #input_word = 'apple'
-        #translated = transiteration(sess, input_word)
-        #print('{} -> {}'.format(input_word, translated))
+        print("final inferance")
+        input_word = 'apple'
+        translated = transiteration(sess, transformer, input_word)
+        print('{} -> {}'.format(input_word, translated))
 run_train()
