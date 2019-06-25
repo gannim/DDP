@@ -145,7 +145,7 @@ class Transformer(object):
             step_predict = tf.reshape(tf.gather_nd(step_predict, [0, i]), [1, -1])
             output_tensor_t = output_tensor_t.write( i, step_predict )
             next_inputs = tf.concat([dec_input, step_predict], -1)
-            i = tf.Print(i, [i, dec_input, step_predict, tf.shape(step_predict), tf.shape(next_inputs)], "i, dec_input, pred")
+            #i = tf.Print(i, [i, dec_input, step_predict, tf.shape(step_predict), tf.shape(next_inputs)], "i, dec_input, pred")
             return i+1, step_predict, next_inputs, enc_outputs, output_tensor_t, es
         _, _, _, _, self.output_tensor_t, _ = tf.while_loop(
             cond=cond,
