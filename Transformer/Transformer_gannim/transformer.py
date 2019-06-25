@@ -24,25 +24,31 @@ class SuperCoder:
             # relu ==  max(0, x)
             # max(0, xW1 + b1)
             ## inner layer
-            outputs = tf.layers.dense(inputs, num_units[0], activation=tf.nn.relu)
+            outputs = tf.layers.dense(inputs, num_units[0], activation=tf.nn.relu, name="filter_layer")
             outputs = tf.layers.dropout(outputs, dropout)
             # outer layer 
             return tf.layers.dense(outputs, num_units[1])
 
 class Encoder(SuperCoder):
-    def module(self, inputs, num_units, heads, dropout):
-        self.att_out = self.att.multi_head_attention(inputs, inputs, inputs, heads)
+    def module(self, inputs, num_units, heads, dropout, enc_seq_len):
+        self.att_out = self.att.multi_head_attention(inputs, inputs, inputs, heads, enc_seq_len)
         self.con = self.sublayer_connection(inputs, self.att_out, dropout)
         ##
         self.ffn = self.feed_forward(self.con, num_units, dropout)
         return self.sublayer_connection(self.con, self.ffn, dropout)
 
 class Decoder(SuperCoder):
-    def module(self, inputs, enc_outputs, num_units, heads, dropout):
-        self.masked_att = self.att.multi_head_attention(inputs, inputs, inputs, heads, masked=True)
+    def module(self, inputs, enc_outputs, num_units, heads, dropout, enc_seq_len, dec_seq_len):
+        self.masked_att = self.att.multi_head_attention(inputs, inputs, inputs, heads, dec_seq_len, masked=True)
+        #with tf.variable_scope('multihead_attention/rep_q', reuse=True):
+        #with tf.variable_scope('multihead_attention/Wo', reuse=True):
+        #    w = tf.get_variable('kernel')
+        #self.masked_att = tf.Print(self.masked_att, [w], " ----> dec rep_q [w]")
+        #self.masked_att = tf.Print(self.masked_att, [w], " ----> dec Wo [w]")
+        #self.masked_att = tf.Print(self.masked_att, [self.masked_att], ">> masked_att")
         self.masked_con = self.sublayer_connection(inputs, self.masked_att, dropout)
         ## 
-        self.att_out = self.att.multi_head_attention(self.masked_con, enc_outputs, enc_outputs, heads)
+        self.att_out = self.att.multi_head_attention(self.masked_con, enc_outputs, enc_outputs, heads, enc_seq_len)
         self.con = self.sublayer_connection(self.masked_con, self.att_out, dropout)
         ## 
         self.ffn = self.feed_forward(self.con, num_units, dropout)
@@ -56,6 +62,8 @@ class Transformer(object):
         ## input params
         self.enc_inputs = tf.placeholder(tf.int64, [None, None], name='enc_inputs') 
         self.dec_inputs = tf.placeholder(tf.int64, [None, None], name='dec_inputs')
+        self.enc_seq_len = tf.placeholder(tf.float32, name="enc_seq_len") 
+        self.dec_seq_len = tf.placeholder(tf.float32, name="dec_seq_len") 
         self.out_keep_prob = tf.placeholder(tf.float32, name="out_keep_prob") 
         
         ## answer params
@@ -83,11 +91,11 @@ class Transformer(object):
 
         ## encoding layer 
         with tf.variable_scope('encode', reuse=tf.AUTO_REUSE):
-            self.enc_outputs = self._encoder(self.enc_input_pos, [n_hidden * 4, n_hidden], heads_size, layer_size, self.out_keep_prob)
+            self.enc_outputs = self._encoder(self.enc_input_pos, [n_hidden * 4, n_hidden], heads_size, layer_size, self.out_keep_prob, self.enc_seq_len)
 
         ## decoding layer 
         with tf.variable_scope('decode', reuse=tf.AUTO_REUSE):
-            self.dec_outputs = self._decoder(self.dec_input_pos, self.enc_outputs, [n_hidden * 4, n_hidden], heads_size, layer_size, self.out_keep_prob)
+            self.dec_outputs = self._decoder(self.dec_input_pos, self.enc_outputs, [n_hidden * 4, n_hidden], heads_size, layer_size, self.out_keep_prob, self.enc_seq_len, self.dec_seq_len)
 
         ## output layer
         self.logits = tf.layers.dense(self.dec_outputs, n_class, activation=None, reuse=tf.AUTO_REUSE, name='output_layer')
@@ -110,43 +118,51 @@ class Transformer(object):
         def true():
             return True
 
-        def cond(i, pred, enc_outputs, ot, es):
+        def cond(i, pred, next_inputs, enc_outputs, ot, es):
             p = tf.reshape(pred, [])
             e = tf.reshape(es, [])
             return tf.case({tf.greater_equal(i, uc_data.max_targets_seq_length): false, tf.equal(p, e): false}, default=true)
+            #return tf.case({tf.greater_equal(i, uc_data.max_targets_seq_length): false}, default=true)
 
-        def body(i, dec_input, enc_outputs, output_tensor_t, es):
+        def body(i, cur_input, dec_input, enc_outputs, output_tensor_t, es):
             # dec_input shape [1, 1]
             with tf.variable_scope('decoder_input', reuse=tf.AUTO_REUSE):
+                # dec_embedding print 결과 잘 쓰고 있음
+                params = tf.range(0, i+1)
                 self.dec_step_input_embeddings = tf.nn.embedding_lookup(self.dec_embeddings, dec_input, name="dec_step_input_embeddings")
-                pe_i = tf.gather_nd(self.pos_input_embeddings, [[i]]) # batch, seq, hidden
+                pe_i = tf.nn.embedding_lookup(self.pos_encodings, params, name="pos_input_embeddings")
+                #pe_i = tf.gather_nd(self.pos_input_embeddings, [params]) # step, hidden
+
+                # [2 512][1 2 512] 
+                #self.dec_step_input_embeddings = tf.Print(self.dec_step_input_embeddings, [tf.shape(pe_i), tf.shape(self.dec_step_input_embeddings)], ">> shape")
                 self.dec_step_input_pos = self.dec_step_input_embeddings + pe_i # batch, seq, hidden
-                self.dec_step_input_pos = tf.reshape(self.dec_step_input_pos, [1, 1, n_hidden], name="dec_step_input_pos")
+                self.dec_step_input_pos = tf.reshape(self.dec_step_input_pos, [1, i+1, n_hidden], name="dec_step_input_pos")
             ## decoding layer 
             with tf.variable_scope('decode', reuse=tf.AUTO_REUSE):
-                self.dec_step_output = self._decoder(self.dec_step_input_pos, enc_outputs, [n_hidden * 4, n_hidden], heads_size, layer_size, self.out_keep_prob)
+                self.dec_step_output = self._decoder(self.dec_step_input_pos, enc_outputs, [n_hidden * 4, n_hidden], heads_size, layer_size, self.out_keep_prob, self.enc_seq_len, i+1)
             step_logits = tf.layers.dense(self.dec_step_output, n_class, activation=None, reuse=tf.AUTO_REUSE, name='output_layer')
             step_predict = tf.argmax(step_logits, 2)
-            i = tf.Print(i, [i, step_predict], "i, pred")
+            step_predict = tf.reshape(tf.gather_nd(step_predict, [0, i]), [1, -1])
             output_tensor_t = output_tensor_t.write( i, step_predict )
-            return i+1, step_predict, enc_outputs, output_tensor_t, es
-
-        _, _, _, self.output_tensor_t, _ = tf.while_loop(
+            next_inputs = tf.concat([dec_input, step_predict], -1)
+            i = tf.Print(i, [i, dec_input, step_predict, tf.shape(step_predict), tf.shape(next_inputs)], "i, dec_input, pred")
+            return i+1, step_predict, next_inputs, enc_outputs, output_tensor_t, es
+        _, _, _, _, self.output_tensor_t, _ = tf.while_loop(
             cond=cond,
             body=body,
-            loop_vars=[tf.constant(0), self.dec_step_inputs, self.enc_outputs, self.output_tensor_t, self.end_symbol_idx],
+            loop_vars=[tf.constant(0), self.dec_step_inputs, self.dec_step_inputs, self.enc_outputs, self.output_tensor_t, self.end_symbol_idx],
             name="inf_decoder")
         self.inf_result = self.output_tensor_t.stack()
         self.inf_result = tf.reshape( self.inf_result, [-1] , name='inf_result') 
 
-    def _encoder(self, outputs, num_units, heads, num_layers, dropout):
+    def _encoder(self, outputs, num_units, heads, num_layers, dropout, enc_seq_len):
         for _ in range(num_layers):
-            outputs = self.encoder.module(outputs, num_units, heads, dropout)
+            outputs = self.encoder.module(outputs, num_units, heads, dropout, enc_seq_len)
         return outputs
 
-    def _decoder(self, outputs, enc_outputs, num_units, heads, num_layers, dropout):
-        for _ in range(num_layers):
-            outputs = self.decoder.module(outputs, enc_outputs, num_units, heads, dropout)
+    def _decoder(self, outputs, enc_outputs, num_units, heads, num_layers, dropout, enc_seq_len, dec_seq_len):
+        for i in range(num_layers):
+            outputs = self.decoder.module(outputs, enc_outputs, num_units, heads, dropout, enc_seq_len, dec_seq_len)
         return outputs
         
     def predict_loss_accuracy(self, logits, answers, batch_size, answer_sequence_length, max_sequence_length):

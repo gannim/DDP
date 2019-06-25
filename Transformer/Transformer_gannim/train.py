@@ -19,9 +19,11 @@ CHECKPOINT_EVERY = 1000
 filename = 'data.txt'
 uc_data = dataHelper(filename)
 batch_size = 64
+#batch_size = 1
 #n_hidden = 128 
 n_hidden = 512
 epochs = 100
+#epochs = 1#0
 n_class = len(uc_data.tot_word_idx_dic)
 ##
 learning_rate = 0.001
@@ -40,7 +42,14 @@ def transiteration(sess, model, input_word):
     x_bat, x_seq_len = uc_data.pad(x_bat, 1, uc_data.max_sequence_length)
     x_len = np.array([len(x_bat[0])]) # [[3]]
     y_bat = uc_data.get_input_idxs(uc_data.START_SYMBOL) #[[1]] 
-    result = sess.run(model.inf_result, feed_dict={model.enc_inputs:x_bat, model.dec_step_inputs:y_bat, model.out_keep_prob:1.0})
+    feed = {
+        model.enc_inputs:x_bat, 
+        model.dec_step_inputs:y_bat, 
+        model.enc_seq_len:uc_data.max_sequence_length, 
+        #model.dec_seq_len:1, 
+        model.out_keep_prob:1.0
+    }
+    result = sess.run(model.inf_result, feed_dict=feed)
     translated = uc_data.get_translated_str(result)
     return translated
 
@@ -90,6 +99,8 @@ def run_dev(dev_batchs, model, dev_summary_op, sess, dev_summary_writer, cur_ste
         feed = {
             model.enc_inputs: nx_bat, 
             model.dec_inputs: ny_bat, 
+            model.enc_seq_len:uc_data.max_sequence_length,
+            model.dec_seq_len:uc_data.max_sequence_length,
             model.answers: nt_bat, 
             model.answer_sequence_lengths:t_seq_len, 
             model.out_keep_prob:1.0
@@ -102,6 +113,7 @@ def run_dev(dev_batchs, model, dev_summary_op, sess, dev_summary_writer, cur_ste
             input_word = uc_data.get_translated_str(x_bat[0])
             print('inferance {} -> {}'.format(input_word, transiteration(sess, transformer, input_word)))
             print('devset    {} -> {}'.format(input_word, uc_data.get_translated_str(results.get('predict')[0])))
+            #break
     blen = dev_ep+1
     dev_summary_writer.add_summary(results.get('dev_summary_op'), cur_step)
     print("\nEvaluation : dev loss = %.6f / dev acc = %.6f" %(avg_dev_loss/blen, avg_dev_acc/blen))
@@ -144,12 +156,15 @@ def run_train():
                 'loss':transformer.loss,
                 'accuracy':transformer.accuracy,
                 'train_summary_merge': train_summary_merge,
+                'predict': transformer.predict,
                 'train_op': train_op,
             }
             feed = {
                 transformer.enc_inputs:nx_bat, 
                 transformer.dec_inputs:ny_bat, 
                 transformer.out_keep_prob:keep_prob,
+                transformer.enc_seq_len:uc_data.max_sequence_length,
+                transformer.dec_seq_len:uc_data.max_sequence_length,
                 transformer.answers: nt_bat, 
                 transformer.answer_sequence_lengths: t_seq_len,
             }
@@ -161,12 +176,16 @@ def run_train():
             train_summary_writer.add_summary(results.get('train_summary_merge'), results.get('gstep'))
 
             if cur_step % EVAL_EVERY == 0:
+                #input_word = uc_data.get_translated_str(x_bat[0])
+                #print('inferance {} -> {}'.format(input_word, transiteration(sess, transformer, input_word)))
+                #print('trainset  {} -> {}'.format(input_word, uc_data.get_translated_str(results.get('predict')[0])))
                 ## train avg loss , avg acc
                 print('Epoch: %04d loss = %.6f / avg acc = %.6f' % (cur_step, avg_loss/EVAL_EVERY, avg_acc/EVAL_EVERY))
                 avg_loss, avg_acc = 0, 0
 
                 dev_batchs = uc_data.batch_iter(dev_set, batch_size, 1)
                 run_dev(dev_batchs, transformer, dev_summary_op, sess, dev_summary_writer, cur_step)
+                #break
 
             if cur_step % CHECKPOINT_EVERY == 0:
                 path = saver.save(sess, checkpoint_prefix, global_step=cur_step)
