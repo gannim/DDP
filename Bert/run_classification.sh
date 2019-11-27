@@ -1,4 +1,4 @@
-HOME=/data1/users/annie
+HOME=${1:-""}
 PYTHON=$HOME/.venv/bin/python
 WORK_HOME=$HOME/practice/DDP
 

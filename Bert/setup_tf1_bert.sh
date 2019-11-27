@@ -28,9 +28,17 @@ function download_dataset(){
         awk -F'\t' '{if($3 != "label") print $2"\t"$3 }' nsmc/ratings_train.txt > train.tsv
         awk -F'\t' '{if($3 != "label") print $2"\t"$3 }' nsmc/ratings_test.txt > dev.tsv
     popd
+    pushd $WORK_PATH/kor-quad/dataset
+        git clone https://github.com/korquad/korquad.github.io.git
+        ln -fs korquad.github.io/dataset/KorQuAD_v1.0_dev.json
+        ln -fs korquad.github.io/dataset/KorQuAD_v1.0_train.json
+        ln -fs korquad.github.io/dataset/evaluate-v1.0.py
+    popd 
     proxy_off
 }
 
 download_bert
 download_dataset
+
+mkdir $WORK_PATH/kor-quad
 
